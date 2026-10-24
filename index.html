@@ -50,9 +50,9 @@ p { margin: 0; }
 .lead { font-size: 21px; color: var(--muted); }
 
 .view {
-  min-height: 100vh;
-  min-height: 100dvh;
-  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(22px + env(safe-area-inset-bottom, 0px));
+  min-height: calc(100vh - 56px - env(safe-area-inset-top, 0px));
+  min-height: calc(100dvh - 56px - env(safe-area-inset-top, 0px));
+  padding: 8px 20px calc(22px + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -110,6 +110,7 @@ p { margin: 0; }
 .sos-btn {
   display: flex; align-items: center; justify-content: center; gap: 14px;
   height: 100px; margin-top: auto; border: 0; border-radius: 28px;
+  position: sticky; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 5; flex: none;
   background: var(--red); color: #fff; box-shadow: 0 6px 0 var(--red-dk);
   font-size: 32px; font-weight: 700; letter-spacing: 0.5px;
 }
@@ -231,6 +232,22 @@ p { margin: 0; }
   .ring .bar { transition: none; }
 }
 
+/* Barra superior con hora y batería */
+.sbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  height: calc(56px + env(safe-area-inset-top, 0px)); padding: env(safe-area-inset-top, 0px) 20px 0;
+  font-size: 30px; font-weight: 700; line-height: 1; color: var(--ink);
+}
+.sbar .clk { font-variant-numeric: tabular-nums; }
+.sbar .bat { display: flex; align-items: center; gap: 8px; font-size: 26px; }
+.sbar .bat[hidden] { display: none; }
+.crow { display: flex; align-items: center; gap: 8px; }
+.crow .contact { flex: 1; min-width: 0; }
+.crow .del {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  width: 48px; height: 48px; border: 2px solid var(--line); border-radius: 24px; background: #fff; color: var(--muted); padding: 0;
+}
+
 </style>
 </head>
 <body>
@@ -250,22 +267,29 @@ const STORE = 'cerca.v1';
 const defaults = () => ({
   name: '',
   contacts: [{ name: '', phone: '' }, { name: '', phone: '' }, { name: '', phone: '' }],
-  apps: ['llamar', 'whatsapp', 'mensajes', 'fotos', 'camara', 'recordatorios'],
+  apps: ['llamar', 'whatsapp', 'mensajes', 'fotos', 'camara', 'recordatorios', 'contactos', 'buscar'],
   reminders: [],
   rate: 0.9,
   token: '',
-  apiKey: ''
+  apiKey: '',
+  extra: [],
+  memory: []
 });
 
 function load() {
   const d = defaults();
+  let old = false;
   try {
     const r = JSON.parse(localStorage.getItem(STORE));
-    if (r && typeof r === 'object') Object.assign(d, r);
+    if (r && typeof r === 'object') { Object.assign(d, r); old = !r.v || r.v < 2; }
   } catch (e) { /* sin datos previos */ }
   const cs = Array.isArray(d.contacts) ? d.contacts : [];
   d.contacts = [0, 1, 2].map((i) => ({ name: String((cs[i] && cs[i].name) || ''), phone: String((cs[i] && cs[i].phone) || '') }));
   if (!Array.isArray(d.apps)) d.apps = defaults().apps;
+  if (old) ['contactos', 'buscar'].forEach((id) => { if (d.apps.indexOf(id) < 0) d.apps.push(id); });
+  d.v = 2;
+  if (!Array.isArray(d.extra)) d.extra = [];
+  if (!Array.isArray(d.memory)) d.memory = [];
   if (!Array.isArray(d.reminders)) d.reminders = [];
   return d;
 }
@@ -306,7 +330,9 @@ const P = {
   back: '<path d="M19 12H5M11 6l-6 6 6 6"/>',
   check: '<path d="M5 12.5l4.5 4.5L19 7.5"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
-  pin: '<path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>'
+  pin: '<path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"/><circle cx="12" cy="10" r="2.5"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5L21 21"/>'
 };
 const ico = (n, s = 42, w = 2) => '<svg aria-hidden="true" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="' + w + '" stroke-linecap="round" stroke-linejoin="round">' + P[n] + '</svg>';
 
@@ -316,7 +342,9 @@ const APPS = {
   mensajes: { label: 'Mensajes', color: '#9B2C6B', ico: 'mail' },
   fotos: { label: 'Fotos', color: '#6A3FA0', ico: 'image' },
   camara: { label: 'Cámara', color: '#3B4A5A', ico: 'camera' },
-  recordatorios: { label: 'Recordatorios', color: '#A24A00', ico: 'bell' }
+  recordatorios: { label: 'Recordatorios', color: '#A24A00', ico: 'bell' },
+  contactos: { label: 'Contactos', color: '#00696B', ico: 'user' },
+  buscar: { label: 'Buscar', color: '#33509E', ico: 'search' }
 };
 
 const backBtn = () => '<button type="button" class="round" data-act="back" aria-label="Volver">' + ico('back', 30, 2.4) + '</button>';
@@ -380,7 +408,9 @@ window.addEventListener('popstate', (e) => {
 });
 
 function render() {
-  app.innerHTML = VIEWS[view](params);
+  app.innerHTML = statusBar() + VIEWS[view](params);
+  document.body.style.background = view === 'sos' ? '#FDEDEB' : view === 'alert' ? '#FFF4E5' : '';
+  updateBar();
   const h = app.querySelector('h1');
   if (h) { h.setAttribute('tabindex', '-1'); try { h.focus({ preventScroll: true }); } catch (e) { /* nada */ } }
   if (AFTER[view]) AFTER[view](params);
@@ -462,9 +492,14 @@ VIEWS.home = () => {
     '</section>';
 };
 
+const WA_INTENT = 'intent://send/#Intent;scheme=whatsapp;package=com.whatsapp;end';
 ACT['open-app'] = (el) => {
   const id = el.dataset.app;
-  if (id === 'llamar' || id === 'whatsapp' || id === 'mensajes') go('contacts', { mode: id });
+  if (id === 'llamar') go('contacts', { mode: 'llamar' });
+  else if (id === 'whatsapp') window.location.href = WA_INTENT;
+  else if (id === 'mensajes') window.location.href = 'sms:';
+  else if (id === 'contactos') go('contacts', { mode: 'contactos' });
+  else if (id === 'buscar') go('search');
   else if (id === 'fotos') document.getElementById('pick-photo').click();
   else if (id === 'camara') document.getElementById('pick-camera').click();
   else if (id === 'recordatorios') go('reminders');
@@ -506,7 +541,7 @@ const CIRC = 2 * Math.PI * 94;
 
 VIEWS.sos = () => {
   const c = primary();
-  const ring = '<div class="ring"><svg width="210" height="210" viewBox="0 0 210 210" fill="none" aria-hidden="true"><circle cx="105" cy="105" r="94" stroke="#F3C4BF" stroke-width="14"/><circle class="bar" id="sos-bar" cx="105" cy="105" r="94" stroke="#B3261E" stroke-width="14" stroke-linecap="round" stroke-dasharray="' + CIRC.toFixed(1) + '" stroke-dashoffset="0" transform="rotate(-90 105 105)"/></svg><div class="num"><span id="sos-n">5</span><small>segundos</small></div></div>';
+  const ring = '<div class="ring"><svg width="210" height="210" viewBox="0 0 210 210" fill="none" aria-hidden="true"><circle cx="105" cy="105" r="94" stroke="#F3C4BF" stroke-width="14"/><circle class="bar" id="sos-bar" cx="105" cy="105" r="94" stroke="#B3261E" stroke-width="14" stroke-linecap="round" stroke-dasharray="' + CIRC.toFixed(1) + '" stroke-dashoffset="0" transform="rotate(-90 105 105)"/></svg><div class="num"><span id="sos-n">10</span><small>segundos</small></div></div>';
   const top = c
     ? ring + '<p class="big" id="sos-msg" aria-live="assertive">Llamaremos a <strong>' + esc(c.name) + '</strong> y podrás enviarle tu ubicación.</p>'
     : '<p class="big">Aún no hay un contacto de emergencia guardado. Puedes llamar al 112 ahora.</p>';
@@ -523,7 +558,7 @@ AFTER.sos = () => {
   const c = primary();
   try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) { /* nada */ }
   if (!c) { speak('No hay un contacto de emergencia. Puedes llamar al 112.'); return; }
-  sos.left = 5;
+  sos.left = 10;
   sos.pos = null;
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
@@ -532,13 +567,13 @@ AFTER.sos = () => {
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 }
     );
   }
-  speak('Voy a llamar a ' + c.name + ' en cinco segundos. Pulsa cancelar si ha sido un error.', 1);
+  speak('Voy a llamar a ' + c.name + ' en diez segundos. Pulsa cancelar si ha sido un error.', 1);
   sos.timer = setInterval(() => {
     sos.left -= 1;
     const n = document.getElementById('sos-n');
     const bar = document.getElementById('sos-bar');
     if (n) n.textContent = Math.max(sos.left, 0);
-    if (bar) bar.style.strokeDashoffset = String(CIRC * (1 - Math.max(sos.left, 0) / 5));
+    if (bar) bar.style.strokeDashoffset = String(CIRC * (1 - Math.max(sos.left, 0) / 10));
     if (sos.left <= 0) {
       clearInterval(sos.timer);
       sos.timer = null;
@@ -643,12 +678,18 @@ function context() {
     name: S.name,
     now: new Date().toLocaleString('es-ES', { dateStyle: 'full', timeStyle: 'short' }),
     reminders: activeReminders().slice(0, 8).map((r) => dateLabel(r.date) + ' ' + r.time + ' ' + r.text),
-    contacts: validContacts().map((c) => c.name)
+    contacts: validContacts().map((c) => c.name),
+    memory: S.memory.slice(-25)
   };
 }
 
-const MODEL = 'claude-haiku-5-5';
+const MODEL = 'claude-sonnet-5-5';
 const TOOLS = [
+  {
+    name: 'guardar_recuerdo',
+    description: 'Guarda en una frase corta un dato duradero e importante sobre la persona (familia, gustos, rutinas, salud que ella menciona, nombres) para personalizar futuras conversaciones.',
+    input_schema: { type: 'object', properties: { texto: { type: 'string', description: 'El dato, en una frase corta' } }, required: ['texto'] }
+  },
   {
     name: 'crear_recordatorio',
     description: 'Crea un recordatorio que sonará en voz alta en el móvil de la persona. Úsalo cuando la persona pida que le recuerdes o avises de algo a una hora concreta.',
@@ -667,14 +708,19 @@ const TOOLS = [
 ];
 
 function systemPrompt(c) {
+  const mem = c.memory && c.memory.length ? c.memory.join('; ') : 'todavía nada';
   return [
-    'Eres AQUITOY, un asistente de voz y compañía para personas mayores. Hablas con ' + (c.name || 'la persona') + ' en español de España.',
-    'Tus respuestas se leen en voz alta: usa frases cortas y sencillas, como máximo tres, sin listas, sin símbolos, sin emojis y sin formato.',
-    'Habla con calidez y paciencia. Haz una sola pregunta cada vez. Usa el nombre de la persona de vez en cuando, sin abusar.',
-    'Puedes charlar de lo que quiera: cómo se siente, recuerdos, la familia, el día. Escucha y responde a lo que cuenta.',
+    'Eres AQUITOY, la compañía de voz de ' + (c.name || 'una persona mayor') + '. Hablas en español de España, con cercanía, como una amiga paciente y cariñosa. Nunca la tratas como a una niña.',
+    'Tus respuestas se leen en voz alta: frases cortas y naturales, entre una y cuatro frases, sin listas, sin símbolos, sin emojis y sin formato. Escribe los números y las horas como se dicen.',
+    'Tu objetivo es dar buena conversación. Escucha de verdad y responde a lo que cuenta, retomando detalles que ha dicho antes. Haz una sola pregunta cada vez, abierta y sencilla, para que siga hablando: cómo ha dormido, qué ha comido, a quién ha visto, recuerdos de su juventud, su pueblo, su familia, sus gustos, la música, la cocina, el tiempo.',
+    'Si contesta con pocas palabras, propón algo ameno: una adivinanza, un refrán y su significado, un juego de memoria, una anécdota corta o un recuerdo para evocar. Adapta el tono a su ánimo; si está triste, acompaña primero y no intentes animarla de golpe.',
+    'Si te pregunta algo que no sabes o que depende de hoy, como noticias o resultados, dilo con sinceridad y no inventes.',
     'No eres médico. No des diagnósticos ni cambies medicaciones. Si cuenta algo grave, como dolor en el pecho, dificultad para respirar, una caída con golpe, un mareo fuerte o confusión, dile con calma que pulse el botón rojo de PEDIR AYUDA o que llame al 112.',
-    'Si pide que le recuerdes algo, usa la herramienta crear_recordatorio y confirma en voz alta la hora. Si se despide, usa fin_conversacion y despídete con cariño.',
+    'Cuando cuente algo duradero e importante sobre ella, guárdalo con la herramienta guardar_recuerdo en una frase corta, sin avisarla, y úsalo después para personalizar la charla.',
+    'Si pide que le recuerdes algo, usa crear_recordatorio y confirma en voz alta la hora. Si se despide, usa fin_conversacion y despídete con cariño.',
+    'Responde siempre también con palabras, aunque uses una herramienta.',
     'Ahora es: ' + c.now + '.',
+    'Lo que sabes de ella: ' + mem + '.',
     'Recordatorios pendientes: ' + (c.reminders.length ? c.reminders.join('; ') : 'ninguno') + '.',
     'Familiares guardados: ' + (c.contacts.length ? c.contacts.join(', ') : 'sin datos') + '.'
   ].join('\n');
@@ -728,9 +774,10 @@ async function ask(text) {
     const notes = [];
     (j.actions || []).forEach((a) => {
       if (a.name === 'crear_recordatorio') { const n = handleReminder(a.input || {}); if (n) notes.push(n); }
+      else if (a.name === 'guardar_recuerdo') remember(a.input && a.input.texto);
       else if (a.name === 'fin_conversacion') end = true;
     });
-    if (!out) out = notes.length ? notes.join(' ') : end ? 'Hasta pronto.' : 'Te escucho.';
+    if (!out) out = notes.length ? notes.join(' ') : end ? 'Hasta pronto.' : 'Cuéntame más, te escucho.';
     conv.history.push({ role: 'assistant', content: out });
     return { say: out, end: end };
   } catch (e) {
@@ -907,6 +954,119 @@ ACT['save-settings'] = () => {
   S.apiKey = document.getElementById('set-key').value.trim();
   save();
   go('home');
+};
+
+
+/* ---------- Memoria del asistente ---------- */
+function remember(t) {
+  t = String(t || '').trim().slice(0, 160);
+  if (!t || S.memory.some((m) => m.toLowerCase() === t.toLowerCase())) return;
+  S.memory.push(t);
+  if (S.memory.length > 30) S.memory.shift();
+  save();
+}
+
+/* ---------- Barra superior: hora y batería ---------- */
+let batt = null;
+function battIcon(p, ch) {
+  const w = Math.max(2, Math.round(29 * p / 100));
+  const col = p <= 20 && !ch ? '#B3261E' : '#12202E';
+  return '<svg aria-hidden="true" width="46" height="26" viewBox="0 0 44 24" fill="none"><rect x="1.5" y="2.5" width="36" height="19" rx="4.5" stroke="#12202E" stroke-width="3"/><rect x="39" y="8" width="4" height="8" rx="1.5" fill="#12202E"/><rect x="5" y="6" width="' + w + '" height="12" rx="2" fill="' + col + '"/></svg>';
+}
+function statusBar() { return '<div class="sbar"><span class="clk" id="clk"></span><span class="bat" id="bat" hidden></span></div>'; }
+function updateBar() {
+  const c = document.getElementById('clk');
+  if (c) c.textContent = hm(new Date());
+  const b = document.getElementById('bat');
+  if (!b) return;
+  if (!batt) { b.hidden = true; return; }
+  const p = Math.round(batt.level * 100);
+  b.hidden = false;
+  b.setAttribute('aria-label', 'Batería al ' + p + ' por ciento' + (batt.charging ? ', cargando' : ''));
+  b.innerHTML = battIcon(p, batt.charging) + '<span>' + p + '%' + (batt.charging ? ' ↯' : '') + '</span>';
+}
+setInterval(updateBar, 15000);
+try {
+  if (navigator.getBattery) {
+    navigator.getBattery().then((bt) => {
+      batt = bt;
+      ['levelchange', 'chargingchange'].forEach((ev) => bt.addEventListener(ev, updateBar));
+      updateBar();
+    }).catch(() => { /* sin batería */ });
+  }
+} catch (e) { /* sin batería */ }
+
+/* ---------- Contactos del móvil ---------- */
+const baseContacts = VIEWS.contacts;
+VIEWS.contacts = (p) => {
+  if ((p.mode || 'llamar') !== 'contactos') return baseContacts(p);
+  const fam = validContacts().map((c) => ({ name: c.name, phone: c.phone, own: false }));
+  const ext = S.extra.map((c, i) => ({ name: c.name, phone: c.phone, own: true, i: i }));
+  const row = (c) => '<div class="crow"><a class="contact" href="tel:' + esc(tel(c.phone)) + '"><span class="av">' + esc((c.name || '?').charAt(0).toUpperCase()) + '</span><span class="tx"><b>' + esc(c.name) + '</b><small>' + esc(c.phone) + '</small></span>' + ico('phone', 34) + '</a>' +
+    (c.own ? '<button type="button" class="del" data-act="del-contact" data-i="' + c.i + '" aria-label="Quitar a ' + esc(c.name) + '">' + ico('x', 22, 2.6) + '</button>' : '') + '</div>';
+  const list = fam.concat(ext).map(row).join('');
+  const canPick = !!(navigator.contacts && navigator.contacts.select);
+  return '<section class="view"><header class="head">' + backBtn() + '<h1>Contactos</h1></header>' +
+    '<div class="contacts">' + (list || '<div class="note">Aún no hay contactos. Pulsa el botón para elegirlos de tu móvil.</div>') + '</div>' +
+    (canPick ? '<button type="button" class="btn primary" data-act="pick-contacts">' + ico('user', 32) + 'Añadir del móvil</button>' : '<div class="note">Este navegador no deja elegir contactos del móvil. Prueba con Chrome en Android.</div>') +
+    '<p class="lead" id="pick-msg" aria-live="polite"></p></section>';
+};
+ACT['pick-contacts'] = async () => {
+  const msg = document.getElementById('pick-msg');
+  try {
+    const res = await navigator.contacts.select(['name', 'tel'], { multiple: true });
+    let n = 0;
+    (res || []).forEach((r) => {
+      const phone = (r.tel && r.tel[0]) || '';
+      const name = (r.name && r.name[0]) || 'Sin nombre';
+      if (phone && S.extra.length < 80 && !S.extra.some((x) => tel(x.phone) === tel(phone)) && !validContacts().some((x) => tel(x.phone) === tel(phone))) { S.extra.push({ name: String(name).slice(0, 40), phone: String(phone).slice(0, 25) }); n += 1; }
+    });
+    save();
+    render();
+    const m2 = document.getElementById('pick-msg');
+    if (m2) m2.textContent = n ? 'Añadidos: ' + n : 'No se ha añadido ninguno nuevo.';
+  } catch (e) {
+    if (msg) msg.textContent = 'No he podido abrir tus contactos. Revisa que Chrome tenga permiso.';
+  }
+};
+ACT['del-contact'] = (el) => { S.extra.splice(Number(el.dataset.i), 1); save(); render(); };
+
+/* ---------- Buscador de Google ---------- */
+function doSearch(q) {
+  q = String(q || '').trim();
+  if (!q) return;
+  const url = 'https://www.google.com/search?q=' + encodeURIComponent(q);
+  const w = window.open(url, '_blank');
+  if (!w) window.location.href = url;
+}
+VIEWS.search = () => '<section class="view"><header class="head">' + backBtn() + '<h1>Buscar en Google</h1></header>' +
+  '<form class="form" id="search-form"><label for="q">¿Qué quieres buscar?</label>' +
+  '<input id="q" type="text" autocomplete="off" enterkeyhint="search" placeholder="Escribe aquí o pulsa Hablar">' +
+  (SR ? '<button type="button" class="btn primary" data-act="search-voice">' + ico('mic', 32) + 'Hablar</button>' : '') +
+  '<button type="submit" class="btn">' + ico('search', 30) + 'Buscar</button></form>' +
+  '<p class="lead" id="search-msg" aria-live="polite"></p></section>';
+AFTER.search = () => {
+  document.getElementById('search-form').addEventListener('submit', (e) => { e.preventDefault(); doSearch(document.getElementById('q').value); });
+};
+ACT['search-voice'] = () => {
+  if (!SR) return;
+  const msg = document.getElementById('search-msg');
+  let rec;
+  try { rec = new SR(); } catch (e) { return; }
+  rec.lang = 'es-ES';
+  rec.interimResults = false;
+  rec.continuous = false;
+  let got = '';
+  let err = '';
+  if (msg) msg.textContent = 'Te escucho…';
+  rec.onresult = (e) => { try { got = e.results[0][0].transcript.trim(); } catch (x) { /* nada */ } };
+  rec.onerror = (e) => { err = e.error; };
+  rec.onend = () => {
+    const m = document.getElementById('search-msg');
+    if (got) { const q = document.getElementById('q'); if (q) q.value = got; if (m) m.textContent = 'Buscando: ' + got; doSearch(got); }
+    else if (m) m.textContent = err === 'not-allowed' ? 'Necesito permiso para el micrófono.' : 'No te he oído. Inténtalo otra vez.';
+  };
+  try { rec.start(); } catch (e) { /* nada */ }
 };
 
 /* ---------- Arranque ---------- */
